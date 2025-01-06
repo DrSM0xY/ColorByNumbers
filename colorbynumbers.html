@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Color by Numbers</title>
+    <link rel="stylesheet" href="https://pyscript.net/releases/2024.5.2/core.css" />
+    <script type="module" src="https://pyscript.net/releases/2024.5.2/core.js"></script>
+</head>
+<body>
+    <h1>Color by Numbers</h1>
+
+    <form id="color-by-numbers-form">
+        <label for="file-input">Upload PNG Image:</label>
+        <input type="file" id="file-input" accept="image/png"><br><br>
+
+        <label for="min-colors">Minimum Colors:</label>
+        <input type="number" id="min-colors" value="3"><br><br>
+
+        <label for="max-colors">Maximum Colors:</label>
+        <input type="number" id="max-colors" value="16"><br><br>
+
+        <label for="use-crayola">Use Crayola Colors:</label>
+        <input type="checkbox" id="use-crayola"><br><br>
+
+        <button type="button" id="generate-button">Generate Color Sheet</button>
+    </form>
+
+    <h2>Output:</h2>
+    <div id="output">
+        <p>No output yet.</p>
+    </div>
+    <py-config>
+        packages = ["pillow", "scikit-learn", "numpy", "matplotlib"]
+    </py-config>
+    <py-script>
+        from js import document
+        from PIL import Image
+        import numpy as np
+
+        def on_generate_click(event):
+            file_input = document.querySelector('#file-input')
+            min_colors = int(document.querySelector('#min-colors').value)
+            max_colors = int(document.querySelector('#max-colors').value)
+            use_crayola = document.querySelector('#use-crayola').checked
+
+            if file_input.files.length == 0:
+                document.querySelector('#output').innerHTML = '<p>Please upload an image.</p>'
+                return
+
+            file = file_input.files[0]
+            reader = FileReader()
+
+            def on_file_loaded(event):
+                img_data = event.target.result
+                img = Image.open(BytesIO(img_data))
+
+                # Your processing logic here
+                colors = get_crayola_colors() if use_crayola else get_kmeans_colors(img, min_colors, max_colors)
+                img_processed = ascolorsheet(downsample_figure(img, colors=colors))
+
+                output_img = BytesIO()
+                img_processed.save(output_img, format='PNG')
+                output_img.seek(0)
+
+                output_html = f'<img src="data:image/png;base64,{base64.b64encode(output_img.read()).decode()}">'
+                document.querySelector('#output').innerHTML = output_html
+
+            reader.onload = on_file_loaded
+            reader.readAsArrayBuffer(file)
+
+        document.querySelector('#generate-button').addEventListener('click', on_generate_click)
+    </py-script>
+</body>
+</html>
