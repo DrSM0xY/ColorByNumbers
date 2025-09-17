@@ -23,6 +23,10 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.patheffects as PathEffects
 import matplotlib.patches as patches
+from reportlab.pdfgen import canvas
+from reportlab.lib.units import mm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 
 from skimage.measure import label as sk_label, regionprops, find_contours
 from skimage.morphology import disk, closing, opening
@@ -39,6 +43,9 @@ LEGEND_SWATCH_SIZE_MM = 8.0
 LEGEND_GAP_MM = 4.0
 LEGEND_TEXT_PT = 4
 PREVIEW_DPI = 150
+
+# Register a font (Helvetica is built in, but we can still set explicitly)
+pdfmetrics.registerFont(TTFont("Helvetica", "Helvetica.ttf"))
 
 # Crayola 48 colors (RGB normalized to [0,1])
 CRAYOLA_48 = {
@@ -233,57 +240,58 @@ def generate_pdf(idx, regions, pdf_path, print_size_mm, palette, color_indices):
     else:
         oh, ow = ch, ch * img_aspect
 
-    fig = plt.figure(figsize=(mm_to_inches(pw), mm_to_inches(ph)), dpi=300)
-    left = MARGIN_MM / pw
-    bottom = (MARGIN_MM + LEGEND_HEIGHT_MM + (ch - oh) / 2) / ph
-    ax = fig.add_axes([left, bottom, ow / pw, oh / ph])
-    ax.set_xlim(0, img_w)
-    ax.set_ylim(img_h, 0)
-    ax.axis("off")
+    # Create PDF canvas
+    c = canvas.Canvas(pdf_path, pagesize=(pw * mm, ph * mm))
 
-    mmppx, mmppy = mm_per_pixel(idx.shape, print_size_mm)
-    px2mm2 = mmppx * mmppy
+    # Scale drawing to fit page
+    x0 = MARGIN_MM * mm
+    y0 = (MARGIN_MM + LEGEND_HEIGHT_MM) * mm
+    scale_x = (ow * mm) / img_w
+    scale_y = (oh * mm) / img_h
 
+    # Draw contours + numbers
     for reg in regions:
         mask = reg["mask"]
         for contour in find_contours(mask, 0.5):
-            ax.plot(contour[:, 1], contour[:, 0], color="black", linewidth=1.2)  # thicker for print
-        r, cx = reg["best_point"]
-        area_mm2 = reg["area_px"] * px2mm2
-        size_pt = min(FONT_PT_MAX, max(FONT_PT_MIN, (math.sqrt(area_mm2) / 10) * 6 + FONT_PT_MIN))
-        ax.text(cx, r, f"{reg['color']+1}", ha="center", va="center", fontsize=size_pt, color="black",
-                path_effects=[PathEffects.Stroke(linewidth=max(1.0, size_pt / 10.0), foreground="white"),
-                              PathEffects.Normal()])
+            path = c.beginPath()
+            # scale + translate
+            path.moveTo(x0 + contour[0, 1] * scale_x, y0 + (img_h - contour[0, 0]) * scale_y)
+            for pt in contour[1:]:
+                path.lineTo(x0 + pt[1] * scale_x, y0 + (img_h - pt[0]) * scale_y)
+            path.close()
+            c.setLineWidth(0.8)  # sharp, thin but printable
+            c.setStrokeColorRGB(0, 0, 0)
+            c.drawPath(path, stroke=1, fill=0)
 
-    # Legend: only used colors
+        r, cx = reg["best_point"]
+        # center text inside region
+        tx = x0 + cx * scale_x
+        ty = y0 + (img_h - r) * scale_y
+        c.setFont("Helvetica", 6)
+        c.drawCentredString(tx, ty, str(reg["color"] + 1))
+
+    # Legend (only used colors)
     used_colors = sorted(set(reg["color"] for reg in regions))
-    lax = fig.add_axes([MARGIN_MM / pw, MARGIN_MM / ph, cw / pw, LEGEND_HEIGHT_MM / ph])
-    lax.axis('off')
-    sw = LEGEND_SWATCH_SIZE_MM
-    gap = LEGEND_GAP_MM
+    sw = LEGEND_SWATCH_SIZE_MM * mm
+    gap = LEGEND_GAP_MM * mm
     cellw = sw + gap * 3
-    perrow = max(1, int(cw // cellw))
+    perrow = max(1, int((cw * mm) // cellw))
     for legend_idx, color_id in enumerate(used_colors):
         row, col = divmod(legend_idx, perrow)
-        x_mm = col * cellw + gap
-        y_mm = LEGEND_HEIGHT_MM - (row + 1) * (sw + gap)
-        x, y = x_mm / cw, y_mm / LEGEND_HEIGHT_MM
-        wn, hn = sw / cw, sw / LEGEND_HEIGHT_MM
-        # palette index matches cluster index (color_id)
-        face = tuple(palette[color_id]) if color_id < len(palette) else (1.0, 1.0, 1.0)
-        rect = patches.Rectangle((x, y), wn, hn, transform=lax.transAxes,
-                                 facecolor=face, edgecolor='black')
-        lax.add_patch(rect)
-        # color_indices maps cluster -> Crayola index
+        x = MARGIN_MM * mm + col * cellw + gap
+        y = MARGIN_MM * mm + LEGEND_HEIGHT_MM * mm - (row + 1) * (sw + gap)
+        # draw swatch
+        face = palette[color_id] if color_id < len(palette) else (1.0, 1.0, 1.0)
+        c.setFillColorRGB(*face)
+        c.rect(x, y, sw, sw, fill=1, stroke=1)
         cray_idx = color_indices[color_id] if color_id < len(color_indices) else None
         color_name = CRAYOLA_NAMES[cray_idx] if cray_idx is not None and cray_idx < len(CRAYOLA_NAMES) else "Color"
-        lax.text(x + wn / 2, y + hn / 2, f"{color_id+1} ({color_name})", transform=lax.transAxes,
-                 ha='center', va='center', fontsize=LEGEND_TEXT_PT, color="black",
-                 path_effects=[PathEffects.Stroke(linewidth=1.2, foreground='white'), PathEffects.Normal()])
+        c.setFillColorRGB(0, 0, 0)
+        c.setFont("Helvetica", 6)
+        c.drawString(x + sw + 2, y + sw / 4, f"{color_id+1} ({color_name})")
 
-    with PdfPages(pdf_path) as pdf:
-        pdf.savefig(fig, bbox_inches='tight')
-    plt.close(fig)
+    c.showPage()
+    c.save()
 
 # ---------- GUI ----------
 class App:
@@ -334,8 +342,14 @@ class App:
         path = filedialog.askopenfilename(filetypes=[("PNG", "*.png"), ("All", "*.*")])
         if path:
             self.image_path = path
+            self.original_img = None  # 🔑 Reset so new file gets loaded
+            self.idx = None           # optional: reset processed data
+            self.palette = None
+            self.color_indices = None
+            self.regions = None
             self.file_entry.delete(0, tk.END)
             self.file_entry.insert(0, path)
+            self.preview_lbl.configure(image="", text="Preview will appear here.")  # reset preview
 
     def load_image(self):
         if not self.image_path:
