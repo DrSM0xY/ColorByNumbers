@@ -1,8 +1,8 @@
 # 🎨 Color-by-Numbers Generator
 
-Convert any image into a **paint-by-numbers** or **color-by-numbers** template, complete with Crayola colors and automatic region labeling.  
+Convert any image into a **color-by-numbers** template, complete with Crayola colors and automatic region labeling.  
 
-🪟 **[👉 Download Windows Executable (no Python required)](https://github.com/DrSM0xY/ColorByNumbers/ColorByNumbers.exe)**
+🪟 **[👉 Download Windows Program](https://github.com/DrSM0xY/ColorByNumbers/releases/download/windows/CBNCreator.exe)**
 
 ---
 
@@ -23,16 +23,9 @@ Convert any image into a **paint-by-numbers** or **color-by-numbers** template, 
 
 If you prefer to run it from source, install dependencies and launch manually:
 
-### 1. Clone the repo
-```bash
 git clone https://github.com/yourusername/color-by-numbers.git
 cd color-by-numbers
-
-### 2. Install dependencies
-```bash
 pip install numpy pillow matplotlib scikit-image scipy scikit-learn
-
-### 3. Run the app
 python color_by_numbers.py
 
 ### Building the .exe Yourself (Optional)
